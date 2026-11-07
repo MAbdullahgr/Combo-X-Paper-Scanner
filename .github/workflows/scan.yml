@@ -1,0 +1,30 @@
+name: COMBO-X scan
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: scan
+  cancel-in-progress: false
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Run scanner
+        run: node scanner/run.js
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      - name: Save results to the repo
+        run: |
+          git config user.name "combo-x-bot"
+          git config user.email "combo-x-bot@users.noreply.github.com"
+          git add config.json docs/data
+          if git diff --cached --quiet; then echo "nothing to save"; else git commit -m "scan $(date -u +'%Y-%m-%d %H:%M')" && git pull --rebase -q && git push; fi
