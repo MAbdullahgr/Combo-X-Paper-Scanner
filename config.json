@@ -1,1 +1,6 @@
-{ "risk": 0.005, "startEquity": 10000, "cost": 0.008 }
+{
+  "risk": 0.005,
+  "startEquity": 10000,
+  "cost": 0.008,
+  "startMs": 1794054756178
+}

@@ -1,0 +1,4 @@
+first_seen_utc,entry_candle_utc,strategy,coin,side,status
+2026-11-07T12:32:43.850Z,2026-11-06T00:00:00.000Z,TK short,XRPUSDT,short,"BEFORE PAPER START (not traded)"
+2026-11-07T12:32:43.850Z,2026-11-03T12:00:00.000Z,TK short,ZECUSDT,short,"BEFORE PAPER START (not traded)"
+2026-11-07T12:32:43.850Z,2026-11-02T00:00:00.000Z,TK short,BNBUSDT,short,"BEFORE PAPER START (not traded)"
