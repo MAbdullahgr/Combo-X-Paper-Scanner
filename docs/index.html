@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>COMBO-X Paper Scanner</title>
+<style>
+:root{--bg:#0e1117;--panel:#161b24;--line:#262d3a;--txt:#e6e9ef;--dim:#8b95a5;--green:#4ade80;--red:#f87171;--amber:#fbbf24;--blue:#60a5fa}
+@media (prefers-color-scheme: light){:root{--bg:#f5f6f8;--panel:#fff;--line:#dfe3ea;--txt:#171b22;--dim:#5d6676;--green:#15803d;--red:#b91c1c;--amber:#b45309;--blue:#1d4ed8}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+.wrap{max-width:1250px;margin:0 auto;padding:14px}
+header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:10px}
+h1{font-size:18px;margin:0}h1 small{color:var(--dim);font-weight:400;font-size:12px;margin-left:8px}
+.status{color:var(--dim);font-size:12px}.status.ok{color:var(--green)}.status.bad{color:var(--red)}
+button{background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:6px 12px;cursor:pointer;font:inherit}button:hover{border-color:var(--blue)}button:disabled{opacity:.5}
+.strip{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:13px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:10px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px}.card .k{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.04em}.card .v{font-size:18px;font-weight:600}
+.tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px}.tabs button.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px;overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:12.5px;white-space:nowrap}th{color:var(--dim);font-weight:500;text-align:left;border-bottom:1px solid var(--line);padding:5px 8px}td{padding:5px 8px;border-bottom:1px solid var(--line)}
+.pos{color:var(--green)}.neg{color:var(--red)}.dim{color:var(--dim)}.ok{color:var(--green)}.warnc{color:var(--amber)}
+.tag{padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600}.tag.long{background:rgba(74,222,128,.15);color:var(--green)}.tag.short{background:rgba(248,113,113,.15);color:var(--red)}.tag.fresh{background:var(--amber);color:#000}
+.hint{color:var(--dim);font-size:12px;margin:0 0 8px}.warn{background:rgba(251,191,36,.12);border:1px solid var(--amber);color:var(--amber);border-radius:6px;padding:6px 10px;margin-bottom:8px;font-size:12.5px}
+.bar{margin-bottom:8px}.rules h3{margin:14px 0 4px;font-size:14px}.rules p,.rules li{color:var(--txt);font-size:13px}.set{display:flex;flex-wrap:wrap;gap:10px;align-items:end}.set label{display:flex;flex-direction:column;font-size:12px;color:var(--dim);gap:3px}.set input,.set select{background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font:inherit}
+canvas{width:100%;max-width:1000px;height:auto}footer{color:var(--dim);font-size:11.5px;margin-top:12px}
+</style></head><body><div class="wrap">
+<header><h1>COMBO-X Paper Scanner <small>runs by itself on GitHub every 30 min &middot; paper trading only</small></h1>
+<div><span id="status" class="status">Loading...</span> <span id="cd" class="status"></span> <button id="btnRefresh">Reload data</button></div></header>
+<div id="errs"></div>
+<div class="strip" id="rg">Loading market regime...</div>
+<div class="cards">
+<div class="card"><div class="k">Paper equity</div><div class="v" id="kEq">-</div></div>
+<div class="card"><div class="k">Return</div><div class="v" id="kRet">-</div></div>
+<div class="card"><div class="k">Max drawdown</div><div class="v" id="kDD">-</div></div>
+<div class="card"><div class="k">Open exposure</div><div class="v" id="kExp">-</div></div>
+<div class="card"><div class="k">Trades</div><div class="v" id="kTr" style="font-size:14px">-</div></div>
+<div class="card"><div class="k">Win rate</div><div class="v" id="kWin">-</div></div>
+<div class="card"><div class="k">Avg R / trade</div><div class="v" id="kR">-</div></div></div>
+<div class="status" id="since" style="margin-bottom:6px"></div>
+<div class="tabs"><button data-t="signals" class="on">Signals</button><button data-t="open">Open positions</button><button data-t="closed">Closed trades</button><button data-t="equity">Equity</button><button data-t="log">Signal log</button><button data-t="rules">Rules &amp; settings</button></div>
+<div class="panel" id="tabBody">Loading...</div>
+<footer>Research tool. Paper trading only: no orders are placed and no API keys are used. Backtests are not a promise of future results; this is not financial advice. Data: Binance public market data, scanned by a scheduled job and saved in this repo.</footer>
+</div>
+<script>
+
+/* ================= DASHBOARD (reads data/state.json written by the scheduled scanner) ================= */
+const DAY = 86400000, H12 = 43200000;
+const $ = (id) => document.getElementById(id);
+let cfg = {}, S = { state: null, res: null, tab: 'signals' };
+/* ---------------- rendering ---------------- */
+const fp = (x) => !Number.isFinite(x) ? '-' : x >= 100 ? x.toFixed(2) : x >= 1 ? x.toFixed(4) : x >= 0.01 ? x.toFixed(5) : x.toPrecision(4);
+const usd = (x) => !Number.isFinite(x) ? '-' : (x < 0 ? '-' : '') + '$' + Math.abs(x).toLocaleString(undefined, { maximumFractionDigits: 0 });
+const pct = (x, d = 1) => !Number.isFinite(x) ? '-' : (x * 100).toFixed(d) + '%';
+const tstr = (ms) => new Date(ms).toISOString().replace('T', ' ').slice(0, 16) + 'Z';
+const cls = (x) => x > 0 ? 'pos' : x < 0 ? 'neg' : '';
+function side(s) { return s === 1 ? '<span class="tag long">LONG</span>' : '<span class="tag short">SHORT</span>'; }
+
+function render() {
+  if (!S.res) return; const r = S.res, eq = r.equity.length ? r.equity[r.equity.length - 1].eq : cfg.startEquity;
+  const closed = r.closed, wins = closed.filter(p => p.pnl > 0).length, sumR = closed.reduce((a, p) => a + (Number.isFinite(p.R) ? p.R : 0), 0);
+  $('kEq').textContent = usd(eq); $('kRet').textContent = pct(eq / cfg.startEquity - 1); $('kRet').className = 'v ' + cls(eq - cfg.startEquity);
+  $('kDD').textContent = pct(r.maxDD); $('kExp').textContent = pct(r.grossNow, 0);
+  $('kTr').textContent = `${closed.length} closed / ${r.open.length} open`; $('kWin').textContent = closed.length ? pct(wins / closed.length, 0) : '-';
+  $('kR').textContent = closed.length ? (sumR / closed.length).toFixed(2) + 'R' : '-';
+  $('since').textContent = 'Paper account since ' + tstr(cfg.startMs);
+  // regime
+  const g = S.state.regime;
+  $('rg').innerHTML = `BTC ${fp(g.btcClose)} | EMA200 ${fp(g.ema200)} -> <b class="${g.above ? 'pos' : 'neg'}">${g.above ? 'ABOVE (long signals allowed)' : 'BELOW (no BB longs)'}</b> | ` +
+    `${g.bbPeriod}-day high ${fp(g.hh)} -> <b class="${g.breakout ? 'pos' : ''}">${g.breakout ? 'BTC IS BREAKING OUT NOW' : 'no breakout today'}</b>`;
+  const age = (Date.now() - S.state.updatedMs) / 3600e3, msgs = [];
+  if (age > 8) msgs.push(`Data is ${age.toFixed(0)} hours old. The scanner may be paused: open the repo's Actions tab and check the "COMBO-X scan" workflow.`);
+  if (!S.state.tkEligible) msgs.push('No coins are eligible for TK shorts right now (futures list not available).');
+  msgs.push(`Scanner: ${S.state.scanned} coins scanned, ${S.state.tkEligible} eligible for shorts (perps via ${S.state.perpMode}); ${S.state.fundNote}.`);
+  $('errs').innerHTML = msgs.map((x, i) => `<div class="${i < msgs.length - 1 ? 'warn' : 'hint'}">${x}</div>`).join('');
+  renderTab();
+}
+
+function logRows(list) {
+  const now = Date.now();
+  return list.map(x => {
+    const fresh = now - x.entryMs < (x.tf === '1d' ? DAY : H12) && now >= x.entryMs;
+    const st = x.status || '';
+    const stc = st.startsWith('TAKEN') ? 'ok' : st.startsWith('SKIPPED') ? 'warnc' : 'dim';
+    return `<tr><td>${tstr(x.entryMs)}${fresh ? ' <span class="tag fresh">FRESH</span>' : ''}</td><td>${x.strat}</td><td><b>${x.sym.replace('USDT', '')}</b></td><td>${side(x.side)}</td>` +
+      `<td>${fp(x.entry)}</td><td>${fp(x.stop)}</td><td>${fp(x.tp)}</td><td>${pct(x.riskPct, 1)}</td><td>${usd(x.N)}</td><td>${usd(x.riskAmt)}</td><td class="${stc}">${st}</td></tr>`;
+  }).join('');
+}
+function renderTab() {
+  const r = S.res, t = S.tab, el = $('tabBody'); let h = '';
+  if (t === 'signals') {
+    const rows = r.log.slice(0, 120);
+    h = `<p class="hint">Signals are generated when a candle CLOSES (BB50 long: daily candle, 00:00 UTC; TK short: 12h candle, 00:00 / 12:00 UTC). The trade enters at the OPEN of the next candle. 
+      "Notional" is the position size for ${pct(cfg.risk, 2)} risk on a ${usd(cfg.startEquity)} paper account; "Risk $" is what you lose if the stop is hit (cost and slippage not included).</p>
+      <table><thead><tr><th>Entry candle</th><th>Strategy</th><th>Coin</th><th>Side</th><th>Entry</th><th>Stop</th><th>Target</th><th>Stop dist.</th><th>Notional</th><th>Risk $</th><th>Paper status</th></tr></thead><tbody>${logRows(rows) || '<tr><td colspan=11 class="dim">No signals yet. They appear after the next candle close.</td></tr>'}</tbody></table>`;
+  } else if (t === 'open') {
+    h = `<table><thead><tr><th>Entered</th><th>Strategy</th><th>Coin</th><th>Side</th><th>Entry</th><th>Last</th><th>Stop</th><th>Target</th><th>Notional</th><th>Unrealized</th><th>Planned time exit</th></tr></thead><tbody>` +
+      (r.open.map(p => `<tr><td>${tstr(p.entryMs)}</td><td>${p.strat}</td><td><b>${p.sym.replace('USDT', '')}</b></td><td>${side(p.side)}</td><td>${fp(p.entry)}</td><td>${fp(p.last)}</td><td>${fp(p.stop)}</td><td>${fp(p.tp)}</td><td>${usd(p.N)}</td><td class="${cls(p.unreal)}">${usd(p.unreal)}</td><td>${tstr(p.entryMs + (p.tf === '1d' ? cfg.bb.maxHold * DAY : cfg.tk.maxHold * H12))}</td></tr>`).join('') || '<tr><td colspan=11 class="dim">No open paper positions.</td></tr>') + '</tbody></table>';
+  } else if (t === 'closed') {
+    h = `<div class="bar"><button onclick="exportClosed()">Export CSV</button></div><table><thead><tr><th>Exit</th><th>Strategy</th><th>Coin</th><th>Side</th><th>Entry</th><th>Exit</th><th>Why</th><th>Notional</th><th>P/L</th><th>R</th><th>Funding</th></tr></thead><tbody>` +
+      (r.closed.slice().reverse().slice(0, 300).map(p => `<tr><td>${tstr(p.exitMs)}</td><td>${p.strat}</td><td><b>${p.sym.replace('USDT', '')}</b></td><td>${side(p.side)}</td><td>${fp(p.entry)}</td><td>${fp(p.exit)}</td><td>${p.outcome}</td><td>${usd(p.N)}</td><td class="${cls(p.pnl)}">${usd(p.pnl)}</td><td class="${cls(p.R)}">${Number.isFinite(p.R) ? p.R.toFixed(2) : '-'}</td><td>${usd(p.fund || 0)}</td></tr>`).join('') || '<tr><td colspan=11 class="dim">No closed trades yet. Positions last up to 30 days.</td></tr>') + '</tbody></table>';
+  } else if (t === 'equity') {
+    h = '<canvas id="cv" width="1000" height="320"></canvas><p class="hint">Equity includes open positions marked at the latest price, costs, and real funding on shorts (when available). Backtest expectation at this risk level: see Rules tab.</p>';
+  } else if (t === 'log') {
+    h = `<div class="bar"><button onclick="exportLog()">Export signal log CSV</button></div><p class="hint">Every signal this page has seen, with the time it first saw it.</p><table><thead><tr><th>First seen</th><th>Entry candle</th><th>Strategy</th><th>Coin</th><th>Side</th><th>Status</th></tr></thead><tbody>` +
+      r.log.slice().sort((a, b) => b.seen - a.seen).slice(0, 300).map(x => `<tr><td>${tstr(x.seen)}</td><td>${tstr(x.entryMs)}</td><td>${x.strat}</td><td><b>${x.sym.replace('USDT', '')}</b></td><td>${side(x.side)}</td><td>${x.status}</td></tr>`).join('') + '</tbody></table>';
+  } else if (t === 'rules') {
+    h = RULES_HTML();
+  }
+  el.innerHTML = h;
+  if (t === 'equity') drawEquity();
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+}
+function drawEquity() {
+  const cv = $('cv'); if (!cv) return; const g = cv.getContext('2d'), W = cv.width, H = cv.height, e = S.res.equity; g.clearRect(0, 0, W, H);
+  g.fillStyle = '#9aa4b2'; g.font = '12px sans-serif';
+  if (e.length < 2) { g.fillText('Not enough data yet (needs at least 2 days).', 20, 30); return; }
+  const mn = Math.min(...e.map(x => x.eq), cfg.startEquity), mx = Math.max(...e.map(x => x.eq), cfg.startEquity), pad = 40, y = v => H - pad - (v - mn) / (mx - mn || 1) * (H - 2 * pad), x = i => pad + i / (e.length - 1) * (W - 2 * pad);
+  g.strokeStyle = '#2a3140'; g.beginPath(); g.moveTo(pad, y(cfg.startEquity)); g.lineTo(W - pad, y(cfg.startEquity)); g.stroke();
+  g.strokeStyle = '#4ade80'; g.lineWidth = 2; g.beginPath(); e.forEach((p, i) => i ? g.lineTo(x(i), y(p.eq)) : g.moveTo(x(i), y(p.eq))); g.stroke();
+  g.fillText(usd(mx), 4, y(mx) + 4); g.fillText(usd(mn), 4, y(mn) + 4); g.fillText(tstr(e[0].t).slice(0, 10), pad, H - 10); g.fillText(tstr(e[e.length - 1].t).slice(0, 10), W - pad - 60, H - 10);
+}
+function RULES_HTML() {
+  return `<div class="rules"><h3>The system (COMBO-X)</h3>
+  <p><b>Long leg - "BTC breakout follower" (daily candles).</b> Buy a coin when: BTC's close is above its previous ${cfg.bbPeriod}-day high, the coin has NOT yet broken its own ${cfg.bbPeriod}-day high, the coin is above its 50-day EMA, and BTC was above its 200-day EMA the day before. Coin must trade over ${usd(cfg.minVol)}/day (30-day median). Stop ${cfg.bb.stopAtr} ATR, target ${cfg.bb.tpR}R, time exit after ${cfg.bb.maxHold} days.</p>
+  <p><b>Short leg - "Tenkan/Kijun cross" (12h candles, futures).</b> Short when the Ichimoku Tenkan (9) crosses below the Kijun (26) while price is below the cloud. Only coins with a Binance USDT perpetual and over ${usd(cfg.shortMinVol)}/day volume. Stop ${cfg.tk.stopAtr} ATR, target ${cfg.tk.tpR}R, time exit after ${cfg.tk.maxHold} 12h-candles (30 days).</p>
+  <p><b>Portfolio rules.</b> Risk per trade ${pct(cfg.risk, 2)} of equity (distance to the stop), one position per coin, one position max ${pct(cfg.maxPos, 0)} of equity, total open exposure max ${pct(cfg.maxGross, 0)}. Same-day ties are broken by a fixed pseudo-random order. Costs ${pct(cfg.cost, 2)} per round trip plus real funding on shorts.</p>
+  <h3>What the backtest said (2019-2026, 524 coins, realistic costs)</h3>
+  <p>At 1% risk per trade: about 69% a year, worst drop -41%, worst year -6% (2021 alone was +600%). At 0.5% risk: about 40% a year with a -40% drop. <b>Treat those as an upper bound.</b> The combination was chosen after seeing the results, so expect roughly half, with drops of 40% or more. A paper account needs 3 months and 50+ closed trades before it says anything.</p>
+  <h3>Paper-trading assumptions</h3>
+  <ul><li>Entries fill at the exact OPEN of the entry candle; stops/targets at their price (gap-through fills at the open). Real fills will be worse.</li>
+  <li>A scheduled job on GitHub rebuilds the paper account from candle data every 30 minutes and saves it in this repo. You never need to keep anything open.</li>
+  <li>This page places NO real orders and uses no API keys. It is a research tool, not financial advice.</li></ul>
+  <h3>Settings</h3>
+  <p>Settings live in <code>config.json</code> in your GitHub repo (risk, start equity, cost). Edit the file on GitHub and the next scan (within 30 minutes) recomputes the whole paper account with the new values. To restart the paper account from today, delete the <code>startMs</code> line from <code>config.json</code>.</p></div>`;
+}
+
+function dl(name, text) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv' })); a.download = name; a.click(); }
+function exportClosed() { const h = 'exit_utc,strategy,coin,side,entry,exit,outcome,notional,pnl,R,funding\n'; dl('paper_closed_trades.csv', h + S.res.closed.map(p => [tstr(p.exitMs), p.strat, p.sym, p.side === 1 ? 'long' : 'short', p.entry, p.exit, p.outcome, p.N.toFixed(2), p.pnl.toFixed(2), (+p.R).toFixed(3), (p.fund || 0).toFixed(2)].join(',')).join('\n')); }
+function exportLog() { const h = 'first_seen_utc,entry_candle_utc,strategy,coin,side,status\n'; dl('signal_log.csv', h + S.res.log.map(x => [tstr(x.seen), tstr(x.entryMs), x.strat, x.sym, x.side === 1 ? 'long' : 'short', '"' + x.status + '"'].join(',')).join('\n')); }
+
+
+async function load() {
+  try {
+    const r = await fetch('data/state.json?t=' + Date.now()); if (!r.ok) throw new Error('HTTP ' + r.status);
+    const st = await r.json(); S.state = st; cfg = st.cfg;
+    S.res = { open: st.open, closed: st.closed, equity: st.equity, log: st.log, maxDD: st.maxDD, grossNow: st.grossNow };
+    $('status').textContent = 'Last scan: ' + tstr(st.updatedMs); $('status').className = 'status ok';
+    render();
+  } catch (e) { $('status').textContent = 'No data yet (' + e.message + '). Run the workflow once from the Actions tab.'; $('status').className = 'status bad'; }
+}
+window.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { S.tab = b.dataset.t; if (S.res) renderTab(); });
+  $('btnRefresh').onclick = load; load(); setInterval(load, 5 * 60000);
+});
+
+</script></body></html>
