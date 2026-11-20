@@ -1,3 +1,4 @@
 exit_utc,strategy,coin,side,entry,exit,outcome,notional,pnl,R,funding
 2026-11-13T12:00:00.000Z,TK short,UNIUSDT,short,6.985,5.846843794617855,target,306.69,47.52,0.951,0.00
 2026-11-13T12:00:00.000Z,TK short,ETHUSDT,short,2113.3,1910.8345340502344,target,521.89,45.82,0.916,0.00
+2026-11-21T00:00:00.000Z,TK short,ZECUSDT,short,1045.15,785.0151370145306,target,201.46,48.53,0.968,0.00
